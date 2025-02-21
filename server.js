@@ -54,17 +54,19 @@ wss.on('connection', (ws) => {
 
       if (obj.type === 'config') {
         // 2) Create Google STT streamingRecognize request
+        // Inside the 'config' message handler
         const request = {
           config: {
             encoding: 'LINEAR16',
             sampleRateHertz: 16000,
             enableAutomaticPunctuation: true,
-            languageCode: obj.language || 'en-US', // Use provided language or default to 'en-US'
-            alternativeLanguageCodes: obj.enableAutoDetection ? ['hi-IN', 'en-US'] : [], // Enable auto-detection if mixed
+            // Set primary language based on auto-detection
+            languageCode: obj.enableAutoDetection ? 'hi-IN' : (obj.language || 'en-US'),
+            // Only include necessary alternatives
+            alternativeLanguageCodes: obj.enableAutoDetection ? ['en-US'] : [],
           },
           interimResults: true,
         };
-
         // 3) Start streaming to Google STT
         recognizeStream = speechClient.streamingRecognize(request)
           .on('error', (err) => {
