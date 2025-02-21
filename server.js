@@ -1,7 +1,12 @@
-// server.js
 require('dotenv').config();
+const express = require('express');
 const { WebSocketServer } = require('ws');
 const speech = require('@google-cloud/speech');
+const fetch = require('node-fetch'); // Add node-fetch for keep-alive requests
+
+// Create an Express app
+const app = express();
+const server = require('http').createServer(app);
 
 /**
  * Create a Google STT client.
@@ -10,8 +15,6 @@ const speech = require('@google-cloud/speech');
  */
 const speechClient = new speech.SpeechClient({
   keyFilename: '/etc/secrets/stt-key.json',
-  // No environment variable approach needed here.
-  // If you prefer environment variables, see the alternative method below.
 });
 
 // Render provides a PORT environment variable for your service.
@@ -19,9 +22,24 @@ const speechClient = new speech.SpeechClient({
 const PORT = process.env.PORT || 3001;
 
 // Create a raw WebSocket server
-const wss = new WebSocketServer({ port: PORT });
+const wss = new WebSocketServer({ server });
 
 console.log(`Google STT WebSocket server starting on port ${PORT}`);
+
+// Keep-Alive Ping (Prevents Render Free Tier from Sleeping)
+app.get('/keep-alive', (req, res) => {
+  res.send('Server is awake!');
+});
+
+// Start the Express server
+server.listen(PORT, () => {
+  console.log(`🚀 Server running on port ${PORT}`);
+});
+
+// Send Keep-Alive Ping Every 5 Minutes
+setInterval(() => {
+  fetch(`http://localhost:${PORT}/keep-alive`).catch(() => {});
+}, 300000); // 300000 ms = 5 minutes
 
 wss.on('connection', (ws) => {
   console.log('Client connected.');
@@ -41,8 +59,8 @@ wss.on('connection', (ws) => {
             encoding: 'LINEAR16',
             sampleRateHertz: 16000,
             enableAutomaticPunctuation: true,
-            languageCode: 'en-US',
-            alternativeLanguageCodes: ['hi-IN'], // English + Hindi
+            languageCode: obj.language || 'en-US', // Use provided language or default to 'en-US'
+            alternativeLanguageCodes: obj.enableAutoDetection ? ['hi-IN', 'en-US'] : [], // Enable auto-detection if mixed
           },
           interimResults: true,
         };
