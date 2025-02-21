@@ -1,109 +1,106 @@
+// server.js
 require('dotenv').config();
 const express = require('express');
 const { WebSocketServer } = require('ws');
 const speech = require('@google-cloud/speech');
-const fetch = require('node-fetch'); // Add node-fetch for keep-alive requests
+const fetch = require('node-fetch'); // ✅ Add node-fetch for keep-alive requests
 
 // Create an Express app
 const app = express();
 const server = require('http').createServer(app);
 
-/**
- * Create a Google STT client.
- * We reference the file at the path /etc/secrets/stt-key.json,
- * which is where Render will mount our secret file.
- */
+// ✅ Google STT Client (Uses Secret File in Render)
 const speechClient = new speech.SpeechClient({
   keyFilename: '/etc/secrets/stt-key.json',
 });
 
-// Render provides a PORT environment variable for your service.
-// Default to 3001 if not present:
+// ✅ Set PORT (Default 3001 if not provided)
 const PORT = process.env.PORT || 3001;
 
-// Create a raw WebSocket server
-const wss = new WebSocketServer({ server });
-
-console.log(`Google STT WebSocket server starting on port ${PORT}`);
-
-// Keep-Alive Ping (Prevents Render Free Tier from Sleeping)
+// ✅ Keep-Alive Route (Prevents Render Free Tier from Sleeping)
 app.get('/keep-alive', (req, res) => {
-  res.send('Server is awake!');
+  res.send('✅ Server is awake!');
 });
 
-// Start the Express server
-server.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`);
-});
-
-// Send Keep-Alive Ping Every 5 Minutes
+// ✅ Send Keep-Alive Request Every 5 Minutes
 setInterval(() => {
-  fetch(`http://localhost:${PORT}/keep-alive`).catch(() => {});
+  fetch(`https://your-app.onrender.com/keep-alive`).catch(() => {});
 }, 300000); // 300000 ms = 5 minutes
 
+// ✅ WebSocket Server Setup
+const wss = new WebSocketServer({ server });
+console.log(`🚀 Google STT WebSocket server running on port ${PORT}`);
+
+// ✅ Start Express Server
+server.listen(PORT, () => {
+  console.log(`✅ Server started on port ${PORT}`);
+});
+
+// ✅ WebSocket Handling
 wss.on('connection', (ws) => {
-  console.log('Client connected.');
+  console.log('✅ Client connected.');
 
   let recognizeStream = null;
 
-  // When the browser sends a message
   ws.on('message', (message) => {
     try {
-      // 1) If message is JSON, parse it
+      // ✅ Parse JSON if it's a config message
       const obj = JSON.parse(message);
 
       if (obj.type === 'config') {
-        // 2) Create Google STT streamingRecognize request
-        // Inside the 'config' message handler
+        console.log("⚙️ Received STT config:", obj);
+
+        // ✅ Updated Google STT streamingRecognize request
         const request = {
           config: {
             encoding: 'LINEAR16',
             sampleRateHertz: 16000,
             enableAutomaticPunctuation: true,
-            // Set primary language based on auto-detection
-            languageCode: obj.enableAutoDetection ? 'hi-IN' : (obj.language || 'en-US'),
-            // Only include necessary alternatives
-            alternativeLanguageCodes: obj.enableAutoDetection ? ['en-US'] : [],
+            enableWordTimeOffsets: true, // Helps Google detect multiple languages
+            singleUtterance: false, // ✅ Ensures continuous transcription
+            languageCode: obj.enableAutoDetection ? 'hi-IN' : (obj.language || 'en-US'), // Set primary language
+            alternativeLanguageCodes: obj.enableAutoDetection ? ['en-US'] : [], // Allow English as an alternative
           },
           interimResults: true,
         };
-        // 3) Start streaming to Google STT
+
+        // ✅ Start streaming to Google STT
         recognizeStream = speechClient.streamingRecognize(request)
           .on('error', (err) => {
-            console.error('Google STT error:', err);
-            // Close the WebSocket with an error code
+            console.error('❌ Google STT error:', err);
             ws.close(1011, 'Google STT error');
           })
           .on('data', (data) => {
-            // 4) For each partial/final transcript
             if (data.results && data.results.length > 0) {
-              const { transcript } = data.results[0].alternatives[0];
+              const transcript = data.results[0].alternatives[0].transcript;
               const isFinal = data.results[0].isFinal;
 
-              // Send to the browser
+              // ✅ Send transcript to client
               ws.send(JSON.stringify({
                 type: 'transcript',
                 transcript,
                 isFinal,
               }));
+
+              console.log(`📝 Transcript (${isFinal ? "Final" : "Interim"}):`, transcript);
             }
           });
 
-        // 5) Notify browser that STT stream is ready
+        // ✅ Notify client that STT stream is ready
         ws.send(JSON.stringify({ type: 'ready' }));
-        console.log('Recognize stream created.');
+        console.log('✅ Google STT stream started with auto-detect languages.');
       }
     } catch {
-      // If it wasn't valid JSON, assume it's binary audio data
+      // ✅ If it's not JSON, assume it's audio data and send to STT
       if (recognizeStream) {
         recognizeStream.write(message);
       }
     }
   });
 
-  // On client disconnect
+  // ✅ WebSocket Client Disconnect Handling
   ws.on('close', () => {
-    console.log('Client disconnected.');
+    console.log('⚠️ Client disconnected.');
     if (recognizeStream) {
       recognizeStream.end();
     }
